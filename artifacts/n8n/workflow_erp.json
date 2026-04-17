@@ -1,0 +1,327 @@
+{
+  "name": "Mini-ERP — Orquestração Híbrida (Workflow + LLM)",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "erp-pedido",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "id": "3cbf90c9-0570-4431-9ae9-35fd975f26d0",
+      "name": "Start",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -896,
+        -16
+      ],
+      "webhookId": "erp-pedido"
+    },
+    {
+      "parameters": {
+        "url": "=http://host.containers.internal:8000/estoque/{{ $json.body.produto_id }}",
+        "options": {}
+      },
+      "id": "cdf2884f-df69-414a-b22f-fa5dc2c170a4",
+      "name": "1. Consultar Estoque",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -656,
+        -16
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "check-stock",
+              "leftValue": "={{ $json.quantidade }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "dfbdcc2c-5015-4185-932c-07ffa107264e",
+      "name": "2. Estoque > 0?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        -416,
+        -16
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://host.containers.internal:8000/pedidos",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"nome_cliente\": \"{{ $('Start').item.json.body.nome_cliente }}\",\n  \"itens\": [\n    {\n      \"produto_id\": {{ $('Start').item.json.body.produto_id }},\n      \"quantidade\": {{ $('Start').item.json.body.quantidade }}\n    }\n  ]\n}",
+        "options": {}
+      },
+      "id": "88a73b80-4aeb-44d0-afa6-eb4c755f9970",
+      "name": "3. Criar Pedido",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -176,
+        -112
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=http://host.containers.internal:8000/pedidos/{{ $json.id }}/fatura",
+        "options": {}
+      },
+      "id": "9d7e0b24-5f44-42a5-b2be-2a4d2dc4f42c",
+      "name": "4. Gerar Fatura",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        64,
+        -112
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "anthropic-version",
+              "value": "2023-06-01"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"model\": \"claude-haiku-4-5-20251001\",\n  \"max_tokens\": 512,\n  \"messages\": [\n    {\n      \"role\": \"user\",\n      \"content\": \"Gere um email curto e profissional de confirmação de pedido para o cliente. Dados da fatura: ID #{{ $json.id }}, Valor: R$ {{ $json.valor_total }}, Status: {{ $json.status }}. O email deve ter saudação, resumo do pedido e agradecimento. Responda apenas com o corpo do email, sem assunto.\"\n    }\n  ]\n}",
+        "options": {}
+      },
+      "id": "977926e8-2fe7-410a-a0f6-73f0eb197d0c",
+      "name": "5. Claude: Email Confirmação",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        304,
+        -112
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "59dbdb2f-af4a-48bc-a623-f6eaf43070b9",
+              "name": "email_gerado",
+              "value": "={{ $json.content[0].text }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "0b0d3480-c5ce-46dd-8e4f-e6d2d5fa1cf0",
+      "name": "6. Email Gerado",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        544,
+        -112
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://host.containers.internal:8000/alertas",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"tipo\": \"estoque_insuficiente\",\n  \"mensagem\": \"Produto #{{ $('1. Consultar Estoque').item.json.produto_id }} sem estoque para atender pedido\",\n  \"detalhes\": {\n    \"produto_id\": {{ $('1. Consultar Estoque').item.json.produto_id }},\n    \"estoque_atual\": {{ $('1. Consultar Estoque').item.json.quantidade }}\n  }\n}",
+        "options": {}
+      },
+      "id": "c8947a76-1694-45d4-b42f-4ef37c1df9af",
+      "name": "Alerta Sem Estoque",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -176,
+        176
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "anthropic-version",
+              "value": "2023-06-01"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"model\": \"claude-haiku-4-5-20251001\",\n  \"max_tokens\": 512,\n  \"messages\": [\n    {\n      \"role\": \"user\",\n      \"content\": \"O cliente tentou comprar o produto \\\"{{ $('1. Consultar Estoque').item.json.produto_nome }}\\\" mas está sem estoque (quantidade atual: {{ $('1. Consultar Estoque').item.json.quantidade }}). Sugira 2-3 produtos alternativos do nosso catálogo (Notebook Básico R$2500, Mouse USB R$50, Teclado Mecânico R$350, Monitor 24pol R$1200) e escreva uma mensagem curta e empática para o cliente. Responda apenas com a mensagem.\"\n    }\n  ]\n}",
+        "options": {}
+      },
+      "id": "75724234-783a-4124-aff3-7a23b79b8524",
+      "name": "Claude: Sugerir Alternativas",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        64,
+        176
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "b1cf7993-2074-4b54-a241-7ae2d549d70e",
+              "name": "email_gerado",
+              "value": "={{ $json.content[0].text }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "04a29336-3846-4873-b479-0d18e44e3695",
+      "name": "Sugestão Gerada",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        304,
+        176
+      ]
+    }
+  ],
+  "connections": {
+    "Start": {
+      "main": [
+        [
+          {
+            "node": "1. Consultar Estoque",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "1. Consultar Estoque": {
+      "main": [
+        [
+          {
+            "node": "2. Estoque > 0?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "2. Estoque > 0?": {
+      "main": [
+        [
+          {
+            "node": "3. Criar Pedido",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Alerta Sem Estoque",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "3. Criar Pedido": {
+      "main": [
+        [
+          {
+            "node": "4. Gerar Fatura",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "4. Gerar Fatura": {
+      "main": [
+        [
+          {
+            "node": "5. Claude: Email Confirmação",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "5. Claude: Email Confirmação": {
+      "main": [
+        [
+          {
+            "node": "6. Email Gerado",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Alerta Sem Estoque": {
+      "main": [
+        [
+          {
+            "node": "Claude: Sugerir Alternativas",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Claude: Sugerir Alternativas": {
+      "main": [
+        [
+          {
+            "node": "Sugestão Gerada",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [],
+  "triggerCount": 0,
+  "pinData": {}
+}

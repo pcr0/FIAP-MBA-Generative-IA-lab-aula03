@@ -1,0 +1,20 @@
+# Tokens e secrets — NUNCA commitar
+.env
+
+# macOS
+.DS_Store
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+mcp_server/venv/
+mcp_server/.venv/
+
+# Estado do Claude Code
+.claude/
+.remember/
+
+# Temporários
+*.tmp
+*.log

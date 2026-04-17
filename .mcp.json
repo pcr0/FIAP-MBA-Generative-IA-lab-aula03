@@ -1,0 +1,12 @@
+{
+  "_comment": "Substitua SEU_TOKEN_MCP_AQUI pelo Access Token do n8n (Settings → Instance-level MCP → Connection details). Veja .env.example para instruções.",
+  "mcpServers": {
+    "n8n-erp": {
+      "type": "http",
+      "url": "http://localhost:5678/mcp-server/http",
+      "headers": {
+        "Authorization": "Bearer SEU_TOKEN_MCP_AQUI"
+      }
+    }
+  }
+}

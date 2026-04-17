@@ -1,0 +1,359 @@
+{
+  "name": "Mini-ERP — Orquestração Híbrida (Workflow + LLM)",
+  "flow": [
+    {
+      "id": 1,
+      "module": "http:ActionSendData",
+      "version": 3,
+      "parameters": {},
+      "mapper": {
+        "url": "TUNNEL_URL_AQUI/estoque/1",
+        "serializeUrl": false,
+        "method": "get",
+        "headers": [],
+        "qs": [],
+        "bodyType": "",
+        "parseResponse": true,
+        "authUser": "",
+        "authPass": "",
+        "timeout": "",
+        "shareCookies": false,
+        "ca": "",
+        "rejectUnauthorized": true,
+        "followRedirect": true,
+        "useQuerystring": false,
+        "followAllRedirects": false
+      },
+      "metadata": {
+        "designer": {
+          "x": 0,
+          "y": 0
+        },
+        "restore": {
+          "expect": {
+            "method": { "label": "GET" },
+            "bodyType": { "label": "" }
+          }
+        },
+        "expect": [
+          { "name": "url", "type": "url", "label": "URL", "required": true },
+          { "name": "method", "type": "select", "label": "Method", "required": true }
+        ]
+      }
+    },
+    {
+      "id": 2,
+      "module": "builtin:BasicRouter",
+      "version": 1,
+      "parameters": {},
+      "mapper": null,
+      "metadata": {
+        "designer": {
+          "x": 300,
+          "y": 0
+        }
+      },
+      "routes": [
+        {
+          "flow": [
+            {
+              "id": 3,
+              "module": "http:ActionSendData",
+              "version": 3,
+              "parameters": {},
+              "mapper": {
+                "url": "TUNNEL_URL_AQUI/pedidos",
+                "serializeUrl": false,
+                "method": "post",
+                "headers": [
+                  {
+                    "name": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "qs": [],
+                "bodyType": "raw",
+                "parseResponse": true,
+                "contentType": "application/json",
+                "body": "{\n  \"nome_cliente\": \"Demo Make - Aula 03\",\n  \"itens\": [\n    {\"produto_id\": 1, \"quantidade\": 1}\n  ]\n}",
+                "authUser": "",
+                "authPass": "",
+                "timeout": "",
+                "shareCookies": false,
+                "ca": "",
+                "rejectUnauthorized": true,
+                "followRedirect": true,
+                "useQuerystring": false,
+                "followAllRedirects": false
+              },
+              "metadata": {
+                "designer": {
+                  "x": 600,
+                  "y": -150
+                },
+                "restore": {
+                  "expect": {
+                    "method": { "label": "POST" },
+                    "bodyType": { "label": "Raw" },
+                    "contentType": { "label": "JSON (application/json)" }
+                  }
+                },
+                "expect": [
+                  { "name": "url", "type": "url", "label": "URL", "required": true },
+                  { "name": "method", "type": "select", "label": "Method", "required": true }
+                ]
+              }
+            },
+            {
+              "id": 4,
+              "module": "http:ActionSendData",
+              "version": 3,
+              "parameters": {},
+              "mapper": {
+                "url": "TUNNEL_URL_AQUI/pedidos/{{3.data.id}}/fatura",
+                "serializeUrl": false,
+                "method": "post",
+                "headers": [],
+                "qs": [],
+                "bodyType": "",
+                "parseResponse": true,
+                "authUser": "",
+                "authPass": "",
+                "timeout": "",
+                "shareCookies": false,
+                "ca": "",
+                "rejectUnauthorized": true,
+                "followRedirect": true,
+                "useQuerystring": false,
+                "followAllRedirects": false
+              },
+              "metadata": {
+                "designer": {
+                  "x": 900,
+                  "y": -150
+                },
+                "restore": {
+                  "expect": {
+                    "method": { "label": "POST" },
+                    "bodyType": { "label": "" }
+                  }
+                },
+                "expect": [
+                  { "name": "url", "type": "url", "label": "URL", "required": true },
+                  { "name": "method", "type": "select", "label": "Method", "required": true }
+                ]
+              }
+            },
+            {
+              "id": 5,
+              "module": "http:ActionSendData",
+              "version": 3,
+              "parameters": {},
+              "mapper": {
+                "url": "https://api.anthropic.com/v1/messages",
+                "serializeUrl": false,
+                "method": "post",
+                "headers": [
+                  {
+                    "name": "x-api-key",
+                    "value": "SUA_API_KEY_AQUI"
+                  },
+                  {
+                    "name": "anthropic-version",
+                    "value": "2023-06-01"
+                  },
+                  {
+                    "name": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "qs": [],
+                "bodyType": "raw",
+                "parseResponse": true,
+                "contentType": "application/json",
+                "body": "{\n  \"model\": \"claude-haiku-4-5-20251001\",\n  \"max_tokens\": 512,\n  \"messages\": [\n    {\n      \"role\": \"user\",\n      \"content\": \"Gere um email curto e profissional de confirmação de pedido para o cliente. Dados: Pedido #{{3.data.id}}, Produto: {{1.data.nome_produto}}, Valor: R$ {{4.data.valor_total}}, Status da fatura: {{4.data.status}}. O email deve ter saudação, resumo do pedido e agradecimento. Responda apenas com o corpo do email, sem assunto.\"\n    }\n  ]\n}",
+                "authUser": "",
+                "authPass": "",
+                "timeout": "",
+                "shareCookies": false,
+                "ca": "",
+                "rejectUnauthorized": true,
+                "followRedirect": true,
+                "useQuerystring": false,
+                "followAllRedirects": false
+              },
+              "metadata": {
+                "designer": {
+                  "x": 1200,
+                  "y": -150
+                },
+                "restore": {
+                  "expect": {
+                    "method": { "label": "POST" },
+                    "bodyType": { "label": "Raw" },
+                    "contentType": { "label": "JSON (application/json)" }
+                  }
+                },
+                "expect": [
+                  { "name": "url", "type": "url", "label": "URL", "required": true },
+                  { "name": "method", "type": "select", "label": "Method", "required": true }
+                ]
+              }
+            }
+          ],
+          "filter": {
+            "name": "Com estoque",
+            "conditions": [
+              [
+                {
+                  "a": "{{1.data.quantidade_disponivel}}",
+                  "b": "0",
+                  "o": "number:gt"
+                }
+              ]
+            ]
+          }
+        },
+        {
+          "flow": [
+            {
+              "id": 6,
+              "module": "http:ActionSendData",
+              "version": 3,
+              "parameters": {},
+              "mapper": {
+                "url": "TUNNEL_URL_AQUI/alertas",
+                "serializeUrl": false,
+                "method": "post",
+                "headers": [
+                  {
+                    "name": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "qs": [],
+                "bodyType": "raw",
+                "parseResponse": true,
+                "contentType": "application/json",
+                "body": "{\n  \"tipo\": \"estoque_zerado\",\n  \"mensagem\": \"Produto {{1.data.nome_produto}} (ID {{1.data.produto_id}}) sem estoque. Cliente Demo Make tentou comprar.\",\n  \"dados\": {\n    \"produto_id\": {{1.data.produto_id}},\n    \"produto_nome\": \"{{1.data.nome_produto}}\"\n  }\n}",
+                "authUser": "",
+                "authPass": "",
+                "timeout": "",
+                "shareCookies": false,
+                "ca": "",
+                "rejectUnauthorized": true,
+                "followRedirect": true,
+                "useQuerystring": false,
+                "followAllRedirects": false
+              },
+              "metadata": {
+                "designer": {
+                  "x": 600,
+                  "y": 150
+                },
+                "restore": {
+                  "expect": {
+                    "method": { "label": "POST" },
+                    "bodyType": { "label": "Raw" },
+                    "contentType": { "label": "JSON (application/json)" }
+                  }
+                },
+                "expect": [
+                  { "name": "url", "type": "url", "label": "URL", "required": true },
+                  { "name": "method", "type": "select", "label": "Method", "required": true }
+                ]
+              }
+            },
+            {
+              "id": 7,
+              "module": "http:ActionSendData",
+              "version": 3,
+              "parameters": {},
+              "mapper": {
+                "url": "https://api.anthropic.com/v1/messages",
+                "serializeUrl": false,
+                "method": "post",
+                "headers": [
+                  {
+                    "name": "x-api-key",
+                    "value": "SUA_API_KEY_AQUI"
+                  },
+                  {
+                    "name": "anthropic-version",
+                    "value": "2023-06-01"
+                  },
+                  {
+                    "name": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "qs": [],
+                "bodyType": "raw",
+                "parseResponse": true,
+                "contentType": "application/json",
+                "body": "{\n  \"model\": \"claude-haiku-4-5-20251001\",\n  \"max_tokens\": 512,\n  \"messages\": [\n    {\n      \"role\": \"user\",\n      \"content\": \"O cliente tentou comprar o produto '{{1.data.nome_produto}}' mas está sem estoque (quantidade atual: {{1.data.quantidade_disponivel}}). Nosso catálogo inclui: Notebook Básico R$2500, Mouse USB R$50, Teclado Mecânico R$350, Monitor 24pol R$1200. Sugira 2-3 alternativas de forma empática. Mencione que registramos um alerta e que ele será notificado quando houver reposição. Responda apenas com a mensagem para o cliente.\"\n    }\n  ]\n}",
+                "authUser": "",
+                "authPass": "",
+                "timeout": "",
+                "shareCookies": false,
+                "ca": "",
+                "rejectUnauthorized": true,
+                "followRedirect": true,
+                "useQuerystring": false,
+                "followAllRedirects": false
+              },
+              "metadata": {
+                "designer": {
+                  "x": 900,
+                  "y": 150
+                },
+                "restore": {
+                  "expect": {
+                    "method": { "label": "POST" },
+                    "bodyType": { "label": "Raw" },
+                    "contentType": { "label": "JSON (application/json)" }
+                  }
+                },
+                "expect": [
+                  { "name": "url", "type": "url", "label": "URL", "required": true },
+                  { "name": "method", "type": "select", "label": "Method", "required": true }
+                ]
+              }
+            }
+          ],
+          "filter": {
+            "name": "Sem estoque",
+            "conditions": [
+              [
+                {
+                  "a": "{{1.data.quantidade_disponivel}}",
+                  "b": "0",
+                  "o": "number:eq"
+                }
+              ]
+            ]
+          }
+        }
+      ]
+    }
+  ],
+  "metadata": {
+    "version": 1,
+    "scenario": {
+      "roundtrips": 1,
+      "maxErrors": 3,
+      "autoCommit": true,
+      "autoCommitTriggerLast": true,
+      "sequential": false,
+      "slots": null,
+      "confidential": false,
+      "dataloss": false,
+      "dlq": false,
+      "freshVariables": false
+    },
+    "designer": {
+      "orphans": []
+    },
+    "zone": "us1.make.com"
+  }
+}
