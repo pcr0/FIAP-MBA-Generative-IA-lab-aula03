@@ -26,13 +26,15 @@ Arquitetura agentic com **3 agentes LLM** operando em padrão **Fan-out / Fan-in
 
 Após o Juiz, um **humano (HITL)** toma a decisão final com base na recomendação e nos pareceres. Se o humano não decidir em 24h, o processo é escalado automaticamente.
 
+**Orquestração:** n8n (self-hosted via Podman). O workflow determinístico do n8n coordena todo o fluxo — verifica se o pedido excede R$ 10k, submete à aprovação via HTTP, dispara os dois agentes LLM em paralelo, coleta os pareceres, aciona o Juiz e gera um e-mail de notificação ao aprovador humano com a recomendação e justificativa. O HITL ocorre fora do workflow (o humano decide pela API REST do ERP). Essa separação mantém o workflow stateless e o SLA de 24h é controlável via mecanismo externo (cron ou alerta).
+
 **Padrão MCP:** Facade — o MCP Server continua sendo a única interface entre LLMs e o ERP, agora com 9 tools adicionais.
 
 **Modelo de dados:** normalizado em duas tabelas (`Aprovacao` + `LogAprovacao` 1-N) para escalabilidade do audit trail.
 
 **Anonimização:** bidirecional no MCP Server — `_anonimizar()` substitui nomes reais por pseudônimos (hash SHA-256 truncado) antes de enviar ao LLM; `_desanonimizar()` reverte antes de salvar no ERP ou responder ao usuário.
 
-**Integração com o lab:** adiciona 8 endpoints REST ao ERP, 9 tools ao MCP Server. Pedidos ≤ R$ 10.000 não são afetados — seguem o fluxo atual (CRIADO → FATURADO).
+**Integração com o lab:** adiciona 8 endpoints REST ao ERP, 9 tools ao MCP Server, e estende o workflow n8n com ~13 nós novos (incluindo 3 chamadas a Claude Haiku e envio de e-mail de notificação ao aprovador). Pedidos ≤ R$ 10.000 não são afetados — seguem o fluxo atual (CRIADO → FATURADO).
 
 ## Alternativas consideradas
 
@@ -51,7 +53,7 @@ Após o Juiz, um **humano (HITL)** toma a decisão final com base na recomendaç
 - Conformidade LGPD: dados pessoais nunca chegam ao LLM — anonimização bidirecional no MCP.
 
 **Negativas / trade-offs aceitos:**
-- Complexidade adicional: 2 novos modelos de dados, 8 novos endpoints, 9 novas tools MCP — mais código para manter.
+- Complexidade adicional: 2 novos modelos de dados, 8 novos endpoints, 9 novas tools MCP, ~13 nós novos no workflow n8n — mais código e configuração para manter.
 - Dependência de LLM para análise: se o LLM estiver indisponível, o processo fica em ANALISE_EM_ANDAMENTO até retry manual.
 - Mapas de anonimização em memória no MCP Server: não persistem entre restarts. Aceitável para contexto didático; em produção, seria necessário persistir em banco/cache.
 

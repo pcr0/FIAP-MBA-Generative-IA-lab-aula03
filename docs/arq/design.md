@@ -143,6 +143,53 @@ erDiagram
     }
 ```
 
+## Orquestração n8n
+
+O workflow n8n (`artifacts/n8n/workflow_erp.json`) é o orquestrador determinístico de todo o fluxo. Ele coordena chamadas HTTP ao ERP e chamadas à API Anthropic, sem depender do MCP Server (que serve apenas LLMs interativos).
+
+**Por que n8n?** Já é usado no lab, permite paralelismo nativo, oferece UI visual para debug, e mantém o workflow stateless — cada execução é independente.
+
+**Fluxo de aprovação no n8n:**
+
+```mermaid
+graph TD
+    START["Webhook POST /erp-pedido"] --> ESTOQUE["1. Consultar Estoque"]
+    ESTOQUE --> IF_EST{"2. Estoque > 0?"}
+    IF_EST -->|Não| ALERTA["Alerta Sem Estoque"]
+    ALERTA --> CLAUDE_ALT["Claude: Sugerir Alternativas"]
+    CLAUDE_ALT --> SUG["Sugestão Gerada"]
+
+    IF_EST -->|Sim| PEDIDO["3. Criar Pedido"]
+    PEDIDO --> IF_APROV{"4. Total > R$10k?"}
+
+    IF_APROV -->|"≤ R$10k"| FATURA["5. Gerar Fatura"]
+    FATURA --> CLAUDE_EMAIL["6. Claude: Email Confirmação"]
+    CLAUDE_EMAIL --> SET_EMAIL["7. Email Gerado"]
+
+    IF_APROV -->|"> R$10k"| SUBMETER["8. Submeter Aprovação"]
+    SUBMETER --> FETCH_FIN["9a. Buscar Dados Financeiro"]
+    SUBMETER --> FETCH_OPS["9b. Buscar Dados Operacional"]
+
+    FETCH_FIN --> AG_FIN["10a. Claude: Agente Financeiro"]
+    FETCH_OPS --> AG_OPS["10b. Claude: Agente Operacional"]
+
+    AG_FIN --> REG_FIN["11a. Registrar Parecer Financeiro"]
+    AG_OPS --> REG_OPS["11b. Registrar Parecer Operacional"]
+
+    REG_FIN --> MERGE["12. Merge Pareceres"]
+    REG_OPS --> MERGE
+
+    MERGE --> CONSULTAR["13. Consultar Aprovação"]
+    CONSULTAR --> AG_JUIZ["14. Claude: Agente Juiz"]
+    AG_JUIZ --> REG_JUIZ["15. Registrar Decisão Juiz"]
+    REG_JUIZ --> CLAUDE_NOTIF["16. Claude: Email Notificação"]
+    CLAUDE_NOTIF --> SET_RESULT["17. Resultado Final"]
+```
+
+**HITL fora do workflow:** O humano recebe o e-mail de notificação com pedido_id, valor, recomendação e justificativa, e decide via API REST (`POST /aprovacoes/{id}/decisao-humana`). Se não decidir em 24h, um mecanismo externo (cron/alerta) aciona o endpoint de escalonamento.
+
+**Agentes LLM via API Anthropic direta:** Os nós Claude do n8n chamam `api.anthropic.com/v1/messages` com `claude-haiku-4-5-20251001`. Não passam pelo MCP Server — os system prompts dos agentes são inline no workflow. A anonimização não é necessária nos nós n8n porque os dados já são processados pelo ERP (o n8n opera como sistema interno confiável).
+
 ## Novas MCP Tools
 
 ### Tools de Fluxo de Aprovação
