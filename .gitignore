@@ -18,3 +18,9 @@ mcp_server/.venv/
 # Temporários
 *.tmp
 *.log
+
+# Volume do n8n criado via docker
+.n8n/
+
+# Banco de dados do ERP em sqlite
+erp/data/mini_erp.db

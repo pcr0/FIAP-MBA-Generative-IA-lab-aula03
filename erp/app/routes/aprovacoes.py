@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 from app.db import get_db
 from app.models import Pedido, Aprovacao, LogAprovacao
 from app.schemas import (
+    AprovacaoIn,
     AprovacaoOut,
     AprovacaoResumoOut,
     LogAprovacaoIn,
@@ -42,9 +43,9 @@ def _aprovacao_to_out(aprovacao: Aprovacao) -> AprovacaoOut:
 
 
 @router.post("/aprovacoes", response_model=AprovacaoOut, status_code=201)
-def criar_aprovacao(pedido_id: int, db: Session = Depends(get_db)):
+def criar_aprovacao(dados: AprovacaoIn, db: Session = Depends(get_db)):
     """Inicia processo de aprovação para um pedido > R$10.000."""
-    pedido = db.query(Pedido).filter(Pedido.id == pedido_id).first()
+    pedido = db.query(Pedido).filter(Pedido.id == dados.pedido_id).first()
     if not pedido:
         raise HTTPException(status_code=404, detail="Pedido não encontrado")
     if pedido.total <= LIMITE_APROVACAO:
@@ -52,11 +53,11 @@ def criar_aprovacao(pedido_id: int, db: Session = Depends(get_db)):
     if pedido.status != "PENDENTE_APROVACAO":
         raise HTTPException(status_code=400, detail=f"Pedido com status '{pedido.status}' não pode iniciar aprovação")
 
-    existente = db.query(Aprovacao).filter(Aprovacao.pedido_id == pedido_id).first()
+    existente = db.query(Aprovacao).filter(Aprovacao.pedido_id == dados.pedido_id).first()
     if existente:
         raise HTTPException(status_code=400, detail="Pedido já possui processo de aprovação")
 
-    aprovacao = Aprovacao(pedido_id=pedido_id)
+    aprovacao = Aprovacao(pedido_id=dados.pedido_id)
     db.add(aprovacao)
     db.flush()
 
@@ -64,7 +65,7 @@ def criar_aprovacao(pedido_id: int, db: Session = Depends(get_db)):
         aprovacao_id=aprovacao.id,
         etapa="SUBMISSAO",
         agente="sistema",
-        parecer=f"Processo de aprovação iniciado para pedido #{pedido_id} (total: R${pedido.total:.2f})",
+        parecer=f"Processo de aprovação iniciado para pedido #{dados.pedido_id} (total: R${pedido.total:.2f})",
         recomendacao=None,
     )
     db.add(log)
