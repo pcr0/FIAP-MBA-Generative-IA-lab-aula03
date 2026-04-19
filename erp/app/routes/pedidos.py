@@ -1,10 +1,12 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from app.db import get_db
 from app.models import Produto, Estoque, Pedido, ItemPedido
 from app.schemas import PedidoIn, PedidoOut, ItemPedidoOut
 
 router = APIRouter(tags=["Pedidos"])
+
+LIMITE_APROVACAO = 10_000.0
 
 
 @router.post("/pedidos", response_model=PedidoOut, status_code=201)
@@ -57,6 +59,8 @@ def criar_pedido(dados: PedidoIn, db: Session = Depends(get_db)):
         estoque.quantidade -= quantidade
 
     pedido.total = total
+    if total > LIMITE_APROVACAO:
+        pedido.status = "PENDENTE_APROVACAO"
     db.commit()
     db.refresh(pedido)
 
@@ -64,9 +68,16 @@ def criar_pedido(dados: PedidoIn, db: Session = Depends(get_db)):
 
 
 @router.get("/pedidos", response_model=list[PedidoOut])
-def listar_pedidos(limit: int = 10, db: Session = Depends(get_db)):
-    """Retorna os últimos pedidos (padrão: 10)."""
-    pedidos = db.query(Pedido).order_by(Pedido.id.desc()).limit(limit).all()
+def listar_pedidos(
+    limit: int = 10,
+    cliente: str | None = Query(default=None, description="Filtrar por nome do cliente"),
+    db: Session = Depends(get_db),
+):
+    """Retorna os últimos pedidos (padrão: 10). Filtra por cliente se informado."""
+    query = db.query(Pedido)
+    if cliente:
+        query = query.filter(Pedido.nome_cliente == cliente)
+    pedidos = query.order_by(Pedido.id.desc()).limit(limit).all()
     return [_pedido_to_out(p) for p in pedidos]
 
 
@@ -77,6 +88,24 @@ def obter_pedido(pedido_id: int, db: Session = Depends(get_db)):
     if not pedido:
         raise HTTPException(status_code=404, detail="Pedido não encontrado")
     return _pedido_to_out(pedido)
+
+
+@router.get("/pedidos/nao-faturados/{produto_id}", response_model=list[PedidoOut])
+def pedidos_nao_faturados_produto(produto_id: int, db: Session = Depends(get_db)):
+    """Lista pedidos não faturados que contêm um produto específico (estoque reservado)."""
+    produto = db.query(Produto).filter(Produto.id == produto_id).first()
+    if not produto:
+        raise HTTPException(status_code=404, detail="Produto não encontrado")
+    pedidos = (
+        db.query(Pedido)
+        .join(ItemPedido)
+        .filter(
+            ItemPedido.produto_id == produto_id,
+            Pedido.status.in_(["CRIADO", "PENDENTE_APROVACAO", "APROVADO"]),
+        )
+        .all()
+    )
+    return [_pedido_to_out(p) for p in pedidos]
 
 
 def _pedido_to_out(pedido: Pedido) -> PedidoOut:

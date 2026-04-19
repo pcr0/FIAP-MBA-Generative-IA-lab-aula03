@@ -14,6 +14,13 @@ def gerar_fatura(pedido_id: int, db: Session = Depends(get_db)):
     if not pedido:
         raise HTTPException(status_code=404, detail="Pedido não encontrado")
 
+    status_bloqueados = ("PENDENTE_APROVACAO", "REJEITADO", "ESCALADO")
+    if pedido.status in status_bloqueados:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Pedido com status '{pedido.status}' não pode ser faturado. Requer aprovação primeiro.",
+        )
+
     if pedido.fatura:
         raise HTTPException(status_code=400, detail="Pedido já possui fatura gerada")
 

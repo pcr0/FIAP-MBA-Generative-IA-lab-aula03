@@ -61,3 +61,61 @@ class FaturaOut(BaseModel):
     valor_total: float
     status: str
     criada_em: datetime
+
+
+# --- Aprovação ---
+
+class LogAprovacaoIn(BaseModel):
+    etapa: str
+    agente: str
+    parecer: str = ""
+    recomendacao: str | None = None
+    detalhes: str | None = None
+
+
+class LogAprovacaoOut(BaseModel):
+    id: int
+    aprovacao_id: int
+    etapa: str
+    agente: str
+    parecer: str
+    recomendacao: str | None
+    detalhes: str | None
+    criado_em: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class AprovacaoOut(BaseModel):
+    id: int
+    pedido_id: int
+    status: str
+    criado_em: datetime
+    atualizado_em: datetime
+    logs: list[LogAprovacaoOut] = []
+
+    model_config = {"from_attributes": True}
+
+
+class AprovacaoResumoOut(BaseModel):
+    id: int
+    pedido_id: int
+    status: str
+    criado_em: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class DecisaoJuizIn(BaseModel):
+    decisao: str
+    justificativa: str
+
+
+class DecisaoHumanaIn(BaseModel):
+    decisao: str
+    responsavel: str
+    comentario: str
+
+
+class EscalonamentoIn(BaseModel):
+    motivo: str

@@ -37,6 +37,7 @@ class Pedido(Base):
 
     itens = relationship("ItemPedido", back_populates="pedido")
     fatura = relationship("Fatura", back_populates="pedido", uselist=False)
+    aprovacao = relationship("Aprovacao", back_populates="pedido", uselist=False)
 
 
 class ItemPedido(Base):
@@ -63,3 +64,31 @@ class Fatura(Base):
     criada_em = Column(DateTime, default=datetime.now)
 
     pedido = relationship("Pedido", back_populates="fatura")
+
+
+class Aprovacao(Base):
+    __tablename__ = "aprovacao"
+
+    id = Column(Integer, primary_key=True, index=True)
+    pedido_id = Column(Integer, ForeignKey("pedido.id"), unique=True, nullable=False)
+    status = Column(String, default="ANALISE_EM_ANDAMENTO")
+    criado_em = Column(DateTime, default=datetime.now)
+    atualizado_em = Column(DateTime, default=datetime.now, onupdate=datetime.now)
+
+    pedido = relationship("Pedido", back_populates="aprovacao")
+    logs = relationship("LogAprovacao", back_populates="aprovacao", order_by="LogAprovacao.criado_em")
+
+
+class LogAprovacao(Base):
+    __tablename__ = "log_aprovacao"
+
+    id = Column(Integer, primary_key=True, index=True)
+    aprovacao_id = Column(Integer, ForeignKey("aprovacao.id"), nullable=False)
+    etapa = Column(String, nullable=False)
+    agente = Column(String, nullable=False)
+    parecer = Column(String, default="")
+    recomendacao = Column(String, nullable=True)
+    detalhes = Column(String, nullable=True)
+    criado_em = Column(DateTime, default=datetime.now)
+
+    aprovacao = relationship("Aprovacao", back_populates="logs")
