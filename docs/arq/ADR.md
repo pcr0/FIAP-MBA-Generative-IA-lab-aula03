@@ -2,7 +2,7 @@
 
 ## Status
 
-Aceito
+Proposto
 
 ## Contexto
 
@@ -18,7 +18,7 @@ Restrições obrigatórias no design:
 
 ## Decisão
 
-Arquitetura agentic com **3 agentes LLM** operando em padrão **Fan-out / Fan-in (Parallel) + HITL**:
+Arquitetura agentic com **3 agentes LLM** operando em padrão **Fan-out / Fan-in (Parallel) + LLM-as-a-judge + HITL**:
 
 1. **Agente Financeiro** — analisa risco de crédito, histórico de compras do cliente, concentração de valor. Trabalha em paralelo com o Agente Operacional.
 2. **Agente Operacional** — analisa impacto no estoque, capacidade de entrega, estoque reservado por pedidos pendentes. Trabalha em paralelo com o Agente Financeiro.
@@ -38,11 +38,11 @@ Após o Juiz, um **humano (HITL)** toma a decisão final com base na recomendaç
 
 ## Alternativas consideradas
 
-- **Alternativa A: Pipeline Sequencial (Cadeia de Agentes)** — cada agente recebe o output do anterior (Risco → Compliance → Juiz). Descartada porque o contexto cresce a cada etapa (custo maior no Juiz), há risco de viés cascata (se o primeiro agente erra, os seguintes herdam o erro) e não aproveita paralelismo.
+- **Alternativa A: Pipeline Sequencial (Cadeia de Agentes)** — cada agente recebe o output do anterior (Financeiro → Operacional → Juiz). Descartada porque o contexto cresce a cada etapa (custo maior no Juiz), há risco de viés cascata (se o primeiro agente erra, os seguintes herdam o erro) e não aproveita paralelismo.
 
-- **Alternativa C: Debate Adversarial com Juiz (Dialética)** — um Defensor constrói argumentos a favor, um Opositor constrói argumentos contra, o Juiz avalia. Descartada porque agentes instruídos a argumentar exaustivamente geram textos longos (risco de estourar budget de R$ 2/execução) e a polarização artificial pode não refletir a complexidade real do caso.
+- **Alternativa B: Debate Adversarial com Juiz (Dialética)** — um Defensor constrói argumentos a favor, um Opositor constrói argumentos contra, o Juiz avalia. Descartada porque agentes instruídos a argumentar exaustivamente geram textos longos (risco de estourar budget de R$ 2/execução) e a polarização artificial pode não refletir a complexidade real do caso.
 
-- **Alternativa D: Manter o processo manual** — custo de inação: lead time de 2 dias por aprovação, sem rastreabilidade, sem auditoria, dependência de pessoas específicas, risco de aprovações inconsistentes. Inaceitável dado os requisitos de SLA e auditoria.
+- **Alternativa C: Manter o processo manual** — custo de inação: lead time de 2 dias por aprovação, sem rastreabilidade, sem auditoria, dependência de pessoas específicas, risco de aprovações inconsistentes. Inaceitável dado os requisitos de SLA e auditoria.
 
 ## Consequências
 
@@ -53,7 +53,7 @@ Após o Juiz, um **humano (HITL)** toma a decisão final com base na recomendaç
 - Conformidade LGPD: dados pessoais nunca chegam ao LLM — anonimização bidirecional no MCP.
 
 **Negativas / trade-offs aceitos:**
-- Complexidade adicional: 2 novos modelos de dados, 8 novos endpoints, 9 novas tools MCP, ~13 nós novos no workflow n8n — mais código e configuração para manter.
+- Complexidade adicional: 3 novos modelos de dados, 8 novos endpoints, 9 novas tools MCP, ~13 nós novos no workflow n8n — mais código e configuração para manter.
 - Dependência de LLM para análise: se o LLM estiver indisponível, o processo fica em ANALISE_EM_ANDAMENTO até retry manual.
 - Mapas de anonimização em memória no MCP Server: não persistem entre restarts. Aceitável para contexto didático; em produção, seria necessário persistir em banco/cache.
 

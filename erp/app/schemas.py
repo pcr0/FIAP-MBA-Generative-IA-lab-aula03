@@ -85,6 +85,11 @@ class LogAprovacaoOut(BaseModel):
 
     model_config = {"from_attributes": True}
 
+class AprovacaoIn(BaseModel):
+    pedido_id: int
+
+    model_config = {"from_attributes": True}
+
 
 class AprovacaoOut(BaseModel):
     id: int

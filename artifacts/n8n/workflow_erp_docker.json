@@ -1,0 +1,840 @@
+{
+  "name": "Mini-ERP — Orquestração Híbrida (Workflow + LLM)",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "erp-pedido",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "id": "c3a6fd19-015f-4d8f-a6e9-66bc503f3f21",
+      "name": "Start",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -1200,
+        272
+      ],
+      "webhookId": "erp-pedido"
+    },
+    {
+      "parameters": {
+        "url": "=http://host.docker.internal:8000/estoque/{{ $json.body.produto_id }}",
+        "options": {}
+      },
+      "id": "43d3e066-2bec-467a-ad00-d7d1d40a9818",
+      "name": "1. Consultar Estoque",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -960,
+        272
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "check-stock",
+              "leftValue": "={{ $json.quantidade }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "9329c748-5262-4cb2-b6d3-f6d5c0ce0440",
+      "name": "2. Estoque > 0?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        -720,
+        272
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://host.docker.internal:8000/pedidos",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"nome_cliente\": \"{{ $('Start').item.json.body.nome_cliente }}\",\n  \"itens\": [\n    {\n      \"produto_id\": {{ $('Start').item.json.body.produto_id }},\n      \"quantidade\": {{ $('Start').item.json.body.quantidade }}\n    }\n  ]\n}",
+        "options": {}
+      },
+      "id": "478d9617-2fe7-4215-8a09-162c3f13e70f",
+      "name": "3. Criar Pedido",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -480,
+        176
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "check-approval",
+              "leftValue": "={{ $json.total }}",
+              "rightValue": 10000,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "f8d14792-e9aa-42fb-861c-1ca4b8de9d38",
+      "name": "4. Total > R$10k?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        -240,
+        176
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=http://host.docker.internal:8000/pedidos/{{ $('3. Criar Pedido').item.json.id }}/fatura",
+        "options": {}
+      },
+      "id": "7f1d5750-3e06-4222-98fd-4937cdc265d1",
+      "name": "5. Gerar Fatura",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "anthropic-version",
+              "value": "2023-06-01"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"model\": \"claude-haiku-4-5-20251001\",\n  \"max_tokens\": 512,\n  \"messages\": [\n    {\n      \"role\": \"user\",\n      \"content\": \"Gere um email curto e profissional de confirmação de pedido para o cliente. Dados da fatura: ID #{{ $json.id }}, Valor: R$ {{ $json.valor_total }}, Status: {{ $json.status }}. O email deve ter saudação, resumo do pedido e agradecimento. Responda apenas com o corpo do email, sem assunto.\"\n    }\n  ]\n}",
+        "options": {}
+      },
+      "id": "f01c0427-8062-44d9-8686-f62857ae3e9a",
+      "name": "6. Claude: Email Confirmação",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        240,
+        0
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "xF4q2S8KXpAGESuK",
+          "name": "Header Auth account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "59dbdb2f-af4a-48bc-a623-f6eaf43070b9",
+              "name": "email_gerado",
+              "value": "={{ $json.content[0].text }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "b81b49a2-3ea8-4331-bf07-585e6a3680a7",
+      "name": "7. Email Gerado",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        480,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://host.docker.internal:8000/alertas",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"tipo\": \"estoque_insuficiente\",\n  \"mensagem\": \"Produto #{{ $('1. Consultar Estoque').item.json.produto_id }} sem estoque para atender pedido\",\n  \"detalhes\": {\n    \"produto_id\": {{ $('1. Consultar Estoque').item.json.produto_id }},\n    \"estoque_atual\": {{ $('1. Consultar Estoque').item.json.quantidade }}\n  }\n}",
+        "options": {}
+      },
+      "id": "8dd1bc76-ddde-464d-94fa-4bfe6d82c580",
+      "name": "Alerta Sem Estoque",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -480,
+        464
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "anthropic-version",
+              "value": "2023-06-01"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"model\": \"claude-haiku-4-5-20251001\",\n  \"max_tokens\": 512,\n  \"messages\": [\n    {\n      \"role\": \"user\",\n      \"content\": \"O cliente tentou comprar o produto \\\"{{ $('1. Consultar Estoque').item.json.produto_nome }}\\\" mas está sem estoque (quantidade atual: {{ $('1. Consultar Estoque').item.json.quantidade }}). Sugira 2-3 produtos alternativos do nosso catálogo (Notebook Básico R$2500, Mouse USB R$50, Teclado Mecânico R$350, Monitor 24pol R$1200) e escreva uma mensagem curta e empática para o cliente. Responda apenas com a mensagem.\"\n    }\n  ]\n}",
+        "options": {}
+      },
+      "id": "dbcc0d00-0b98-45aa-81e7-92d8f4ec0e30",
+      "name": "Claude: Sugerir Alternativas",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -240,
+        464
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "xF4q2S8KXpAGESuK",
+          "name": "Header Auth account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "b1cf7993-2074-4b54-a241-7ae2d549d70e",
+              "name": "email_gerado",
+              "value": "={{ $json.content[0].text }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "aba4a7b9-b903-4178-b3a6-5cd3fbaed513",
+      "name": "Sugestão Gerada",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        0,
+        464
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=http://host.docker.internal:8000/aprovacoes",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"pedido_id\": {{ $('3. Criar Pedido').item.json.id }}\n}",
+        "options": {}
+      },
+      "id": "defe25c4-81b4-4e9c-af70-1832a0159139",
+      "name": "8. Submeter Aprovação",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        0,
+        272
+      ]
+    },
+    {
+      "parameters": {
+        "url": "=http://host.docker.internal:8000/pedidos?cliente={{ $('3. Criar Pedido').item.json.nome_cliente }}",
+        "options": {}
+      },
+      "id": "e405ba05-4a16-455e-9c24-bb7ad6f38e5e",
+      "name": "9a. Buscar Histórico Pedidos",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        240,
+        176
+      ]
+    },
+    {
+      "parameters": {
+        "url": "=http://host.docker.internal:8000/estoque/{{ $('Start').item.json.body.produto_id }}/reservado",
+        "options": {}
+      },
+      "id": "0176ccc2-2e80-4a1b-bd7c-b870e0349daa",
+      "name": "9b. Buscar Estoque Reservado",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        240,
+        368
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "anthropic-version",
+              "value": "2023-06-01"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"model\": \"claude-haiku-4-5-20251001\",\n  \"max_tokens\": 1024,\n  \"system\": \"Você é o Agente Financeiro de uma distribuidora de TI. Sua função é avaliar o risco financeiro de pedidos de alto valor (acima de R$ 10.000). Analise: (1) valor do pedido vs histórico do cliente, (2) frequência de compras, (3) concentração de valor em um único pedido. Responda **somente** em JSON com os campos: parecer (texto analítico de 2-3 frases), recomendacao (APROVAR ou REJEITAR). Não justifique a sua resposta.\",\n  \"messages\": [\n    {\n      \"role\": \"user\",\n      \"content\": \"Pedido #{{ $('3. Criar Pedido').item.json.id }} do cliente {{ $('3. Criar Pedido').item.json.nome_cliente }}, valor R$ {{ $('3. Criar Pedido').item.json.total }}. Histórico de pedidos do cliente: {{ JSON.stringify($json).replace(/\"/g, '\\\\\"') }}\"\n    }\n  ]\n}",
+        "options": {}
+      },
+      "id": "c31f6708-04a4-444f-89cc-596bf5908a48",
+      "name": "10a. Claude: Agente Financeiro",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        480,
+        176
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "xF4q2S8KXpAGESuK",
+          "name": "Header Auth account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "anthropic-version",
+              "value": "2023-06-01"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"model\": \"claude-haiku-4-5-20251001\",\n  \"max_tokens\": 1024,\n  \"system\": \"Você é o Agente Operacional de uma distribuidora de TI. Sua função é avaliar o impacto operacional de pedidos de alto valor (acima de R$ 10.000). Analise: (1) disponibilidade real de estoque (total - reservado), (2) quantidade já comprometida em pedidos pendentes, (3) risco de ruptura de estoque. Responda em JSON com os campos: parecer (texto analítico de 2-3 frases), recomendacao (APROVAR ou REJEITAR).\",\n  \"messages\": [\n    {\n      \"role\": \"user\",\n      \"content\": \"Pedido #{{ $('3. Criar Pedido').item.json.id }}, produto #{{ $('Start').item.json.body.produto_id }}, quantidade solicitada: {{ $('Start').item.json.body.quantidade }}. Dados de estoque: {{ JSON.stringify($json) }}\"\n    }\n  ]\n}",
+        "options": {}
+      },
+      "id": "ed398589-6608-49aa-9fb3-73f08f50ba13",
+      "name": "10b. Claude: Agente Operacional",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        480,
+        368
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "xF4q2S8KXpAGESuK",
+          "name": "Header Auth account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=http://host.docker.internal:8000/aprovacoes/{{ $('3. Criar Pedido').item.json.id }}/parecer",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"agente\": \"financeiro\",\n  \"etapa\": \"PARECER_FINANCEIRO\",\n  \"parecer\": \"{{ JSON.parse($json.content[0].text.replace(/```json|```/g, \"\").trim()).parecer }}\",\n  \"recomendacao\": \"{{ JSON.parse($json.content[0].text.replace(/```json|```/g, \"\").trim()).recomendacao }}\"\n}",
+        "options": {}
+      },
+      "id": "695545ec-3312-48c0-89ab-d984902e55bb",
+      "name": "11a. Registrar Parecer Financeiro",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        720,
+        176
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=http://host.docker.internal:8000/aprovacoes/{{ $('3. Criar Pedido').item.json.id }}/parecer",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"agente\": \"operacional\",\n  \"parecer\": {{ JSON.stringify(JSON.parse($json.content[0].text).parecer) }},\n  \"recomendacao\": {{ JSON.stringify(JSON.parse($json.content[0].text).recomendacao) }}\n}",
+        "options": {}
+      },
+      "id": "3daf8de7-f624-44aa-beab-c88b29039b33",
+      "name": "11b. Registrar Parecer Operacional",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        720,
+        368
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "chooseBranch",
+        "output": "wait"
+      },
+      "id": "e4f3a2c6-2f39-40ba-bb46-269b63cd9cd4",
+      "name": "12. Merge Pareceres",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [
+        960,
+        272
+      ]
+    },
+    {
+      "parameters": {
+        "url": "=http://host.docker.internal:8000/aprovacoes/{{ $('3. Criar Pedido').item.json.id }}",
+        "options": {}
+      },
+      "id": "65caa4ec-de25-419f-a676-60cb61bdc209",
+      "name": "13. Consultar Aprovação",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1200,
+        272
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "anthropic-version",
+              "value": "2023-06-01"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"model\": \"claude-haiku-4-5-20251001\",\n  \"max_tokens\": 1024,\n  \"system\": \"Você é o Juiz (LLM-as-a-Judge) de um processo de aprovação de pedidos de alto valor em uma distribuidora de TI. Você recebe dois pareceres independentes (financeiro e operacional) e deve emitir uma recomendação final fundamentada. Regras: (1) Se ambos recomendam APROVAR, recomende APROVAR com justificativa consolidada. (2) Se ambos recomendam REJEITAR, recomende REJEITAR com justificativa consolidada. (3) Se há divergência, analise os argumentos de cada lado e tome uma decisão fundamentada — não há empate. Responda em JSON com os campos: decisao (APROVAR ou REJEITAR), justificativa (texto de 3-5 frases explicando o racional da decisão, citando pontos de cada parecer).\",\n  \"messages\": [\n    {\n      \"role\": \"user\",\n      \"content\": \"Aprovação do pedido #{{ $('3. Criar Pedido').item.json.id }}, valor R$ {{ $('3. Criar Pedido').item.json.total }}. Dados completos da aprovação: {{ JSON.stringify($json) }}\"\n    }\n  ]\n}",
+        "options": {}
+      },
+      "id": "839d4f6b-cad6-4f8d-91fa-8dec1601c8dc",
+      "name": "14. Claude: Agente Juiz",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1440,
+        272
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "xF4q2S8KXpAGESuK",
+          "name": "Header Auth account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=http://host.docker.internal:8000/aprovacoes/{{ $('3. Criar Pedido').item.json.id }}/decisao-juiz",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"decisao\": {{ JSON.stringify(JSON.parse($json.content[0].text).decisao) }},\n  \"justificativa\": {{ JSON.stringify(JSON.parse($json.content[0].text).justificativa) }}\n}",
+        "options": {}
+      },
+      "id": "1d3747a9-3efc-45dc-90a2-0f9cf9b04063",
+      "name": "15. Registrar Decisão Juiz",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1680,
+        272
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "anthropic-version",
+              "value": "2023-06-01"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"model\": \"claude-haiku-4-5-20251001\",\n  \"max_tokens\": 512,\n  \"messages\": [\n    {\n      \"role\": \"user\",\n      \"content\": \"Gere um email profissional de notificação para o aprovador humano. O pedido #{{ $('3. Criar Pedido').item.json.id }} do cliente {{ $('3. Criar Pedido').item.json.nome_cliente }}, valor R$ {{ $('3. Criar Pedido').item.json.total }}, passou pela análise automatizada e aguarda decisão humana. Recomendação do sistema: {{ JSON.parse($('14. Claude: Agente Juiz').item.json.content[0].text).decisao }}. Justificativa: {{ JSON.parse($('14. Claude: Agente Juiz').item.json.content[0].text).justificativa }}. O email deve: (1) informar que o pedido requer aprovação, (2) apresentar a recomendação e justificativa, (3) solicitar decisão via sistema. Responda apenas com o corpo do email.\"\n    }\n  ]\n}",
+        "options": {}
+      },
+      "id": "d089ead8-f729-4fca-9892-29aab900af60",
+      "name": "16. Claude: Email Notificação",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1920,
+        272
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "xF4q2S8KXpAGESuK",
+          "name": "Header Auth account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "res-pedido-id",
+              "name": "pedido_id",
+              "value": "={{ $('3. Criar Pedido').item.json.id }}",
+              "type": "number"
+            },
+            {
+              "id": "res-status",
+              "name": "status",
+              "value": "AGUARDANDO_HUMANO",
+              "type": "string"
+            },
+            {
+              "id": "res-recomendacao",
+              "name": "recomendacao",
+              "value": "={{ JSON.parse($('14. Claude: Agente Juiz').item.json.content[0].text).decisao }}",
+              "type": "string"
+            },
+            {
+              "id": "res-email",
+              "name": "email_notificacao",
+              "value": "={{ $json.content[0].text }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "c3100071-6fa6-4a23-b65d-1c91450613cf",
+      "name": "17. Resultado Aprovação",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        2160,
+        272
+      ]
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Start": {
+      "main": [
+        [
+          {
+            "node": "1. Consultar Estoque",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "1. Consultar Estoque": {
+      "main": [
+        [
+          {
+            "node": "2. Estoque > 0?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "2. Estoque > 0?": {
+      "main": [
+        [
+          {
+            "node": "3. Criar Pedido",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Alerta Sem Estoque",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "3. Criar Pedido": {
+      "main": [
+        [
+          {
+            "node": "4. Total > R$10k?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "4. Total > R$10k?": {
+      "main": [
+        [
+          {
+            "node": "8. Submeter Aprovação",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "5. Gerar Fatura",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "5. Gerar Fatura": {
+      "main": [
+        [
+          {
+            "node": "6. Claude: Email Confirmação",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "6. Claude: Email Confirmação": {
+      "main": [
+        [
+          {
+            "node": "7. Email Gerado",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Alerta Sem Estoque": {
+      "main": [
+        [
+          {
+            "node": "Claude: Sugerir Alternativas",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Claude: Sugerir Alternativas": {
+      "main": [
+        [
+          {
+            "node": "Sugestão Gerada",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "8. Submeter Aprovação": {
+      "main": [
+        [
+          {
+            "node": "9a. Buscar Histórico Pedidos",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "9b. Buscar Estoque Reservado",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "9a. Buscar Histórico Pedidos": {
+      "main": [
+        [
+          {
+            "node": "10a. Claude: Agente Financeiro",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "9b. Buscar Estoque Reservado": {
+      "main": [
+        [
+          {
+            "node": "10b. Claude: Agente Operacional",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "10a. Claude: Agente Financeiro": {
+      "main": [
+        [
+          {
+            "node": "11a. Registrar Parecer Financeiro",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "10b. Claude: Agente Operacional": {
+      "main": [
+        [
+          {
+            "node": "11b. Registrar Parecer Operacional",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "11a. Registrar Parecer Financeiro": {
+      "main": [
+        [
+          {
+            "node": "12. Merge Pareceres",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "11b. Registrar Parecer Operacional": {
+      "main": [
+        [
+          {
+            "node": "12. Merge Pareceres",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "12. Merge Pareceres": {
+      "main": [
+        [
+          {
+            "node": "13. Consultar Aprovação",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "13. Consultar Aprovação": {
+      "main": [
+        [
+          {
+            "node": "14. Claude: Agente Juiz",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "14. Claude: Agente Juiz": {
+      "main": [
+        [
+          {
+            "node": "15. Registrar Decisão Juiz",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "15. Registrar Decisão Juiz": {
+      "main": [
+        [
+          {
+            "node": "16. Claude: Email Notificação",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "16. Claude: Email Notificação": {
+      "main": [
+        [
+          {
+            "node": "17. Resultado Aprovação",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "409f2414-44f0-487f-a74d-f6955aa16bef",
+  "meta": {
+    "instanceId": "63d9566ad7c59b35828cb84aa0695dbcbd70927c550b543a6591a799816b5cd5"
+  },
+  "id": "RwhjXkFdQbrX916F",
+  "tags": []
+}
