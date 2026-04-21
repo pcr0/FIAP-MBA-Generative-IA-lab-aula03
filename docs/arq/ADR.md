@@ -28,7 +28,7 @@ Após o Juiz, um **humano (HITL)** toma a decisão final com base na recomendaç
 
 **Orquestração:** n8n (self-hosted via Podman). O workflow determinístico do n8n coordena todo o fluxo — verifica se o pedido excede R$ 10k, submete à aprovação via HTTP, dispara os dois agentes LLM em paralelo, coleta os pareceres, aciona o Juiz e gera um e-mail de notificação ao aprovador humano com a recomendação e justificativa. O HITL ocorre fora do workflow (o humano decide pela API REST do ERP). Essa separação mantém o workflow stateless e o SLA de 24h é controlável via mecanismo externo (cron ou alerta).
 
-**Padrão MCP:** Facade — o MCP Server continua sendo a única interface entre LLMs e o ERP, agora com 9 tools adicionais.
+**Padrão MCP:** Facade — o MCP Server continua sendo a única interface entre LLMs e o ERP, agora com 3 tools adicionais.
 
 **Modelo de dados:** normalizado em duas tabelas (`Aprovacao` + `LogAprovacao` 1-N) para escalabilidade do audit trail.
 
@@ -42,7 +42,7 @@ Após o Juiz, um **humano (HITL)** toma a decisão final com base na recomendaç
 
 - **Alternativa B: Debate Adversarial com Juiz (Dialética)** — um Defensor constrói argumentos a favor, um Opositor constrói argumentos contra, o Juiz avalia. Descartada porque agentes instruídos a argumentar exaustivamente geram textos longos (risco de estourar budget de R$ 2/execução) e a polarização artificial pode não refletir a complexidade real do caso.
 
-- **Alternativa C: Com modelo Opus único orquestrando todo o processo sem uso do n8n** — um único modelo LLM gerenciaria todo o fluxo, desde a análise financeira e operacional até a decisão final utilizando modelo Claude Opus (com sub agentes). Descartada porque pelo custo de processamento com um modelo de grande porte, além de perder o paralelismo e a modularidade.
+- **Alternativa C: Com modelo Opus único orquestrando todo o processo sem uso do n8n** — um único modelo Claude Opus gerenciaria todo o fluxo, delegando as análises financeira e operacional a sub agentes Haiku e depois elaborando a decisão final. Descartada porque embora o paralelismo viabilizado pelo n8n se mantenha, o consumo de tokens se tornaria bastante elevado, o que ultrapassaria o limite de custo por requisição.
 
 - **Alternativa D: Manter o processo manual** — custo de inação: lead time de 2 dias por aprovação, sem rastreabilidade, sem auditoria, dependência de pessoas específicas, risco de aprovações inconsistentes. Inaceitável dado os requisitos de SLA e auditoria.
 
@@ -51,13 +51,12 @@ Após o Juiz, um **humano (HITL)** toma a decisão final com base na recomendaç
 **Positivas:**
 - Aprovação automatizada em minutos (análise dos agentes) + decisão humana informada, reduzindo o lead time de 2 dias para horas.
 - Log completo auditável: cada processo gera 5+ entradas de log (SUBMISSAO → PARECER_FINANCEIRO → PARECER_OPERACIONAL → DECISAO_JUIZ → DECISAO_HUMANA), rastreável até o input original.
-- Budget controlável: contextos independentes entre agentes (sem acúmulo), custo estimado < R$ 1,50 por execução com modelos atuais.
 - Conformidade LGPD: dados pessoais nunca chegam ao LLM — anonimização bidirecional no MCP.
 
 **Negativas / trade-offs aceitos:**
-- Complexidade adicional: 3 novos modelos de dados, 8 novos endpoints, 3novas tools MCP, nós novos no workflow n8n — mais código e configuração para manter.
+- Complexidade adicional: 3 novos modelos de dados, 8 novos endpoints, 3 novas tools MCP, nós novos no workflow n8n — mais código e configuração para manter.
 - Dependência de LLM para análise: se o LLM estiver indisponível, o processo fica em ANALISE_EM_ANDAMENTO até retry manual.
-- Mapas de anonimização em memória no MCP Server: não persistem entre restarts. Aceitável para contexto didático; em produção, seria necessário persistir em banco/cache.
+- Mapas de anonimização em memória no MCP Server: não persistem entre restarts. Aceitável para contexto didático; em produção, seria necessário persistir em banco ou cache distribuído.
 
 ## NFRs críticos
 

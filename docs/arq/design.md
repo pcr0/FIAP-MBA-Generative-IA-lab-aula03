@@ -9,38 +9,28 @@ O workflow n8n (`artifacts/n8n/workflow_erp.json`) é o orquestrador determinís
 **Fluxo de aprovação no n8n:**
 
 ```mermaid
-graph TD
+flowchart TB
     START["Webhook POST /erp-pedido"] --> ESTOQUE["1. Consultar Estoque"]
     ESTOQUE --> IF_EST{"2. Estoque > 0?"}
-    IF_EST -->|Não| ALERTA["Alerta Sem Estoque"]
+    IF_EST -- Não --> ALERTA["Alerta Sem Estoque"]
     ALERTA --> CLAUDE_ALT["Claude: Sugerir Alternativas"]
     CLAUDE_ALT --> SUG["Sugestão Gerada"]
-
-    IF_EST -->|Sim| PEDIDO["3. Criar Pedido"]
+    IF_EST -- Sim --> PEDIDO["3. Criar Pedido"]
     PEDIDO --> IF_APROV{"4. Total > R$10k?"}
-
-    IF_APROV -->|"≤ R$10k"| FATURA["5. Gerar Fatura"]
+    IF_APROV -- ≤ R$10k --> FATURA["5. Gerar Fatura"]
     FATURA --> CLAUDE_EMAIL["6. Claude: Email Confirmação"]
     CLAUDE_EMAIL --> SET_EMAIL["7. Email Gerado"]
-
-    IF_APROV -->|"> R$10k"| SUBMETER["8. Submeter Aprovação"]
-    SUBMETER --> FETCH_FIN["9a. MCP - consultar_pedidos_cliente + MCP - consultar_historico_aprovacoes_cliente"]
-    SUBMETER --> FETCH_OPS["9b. MCP - consultar_estoque_reservado"]
-
-    FETCH_FIN --> AG_FIN["10a. Claude: Agente Financeiro"]
-    FETCH_OPS --> AG_OPS["10b. Claude: Agente Operacional"]
-
-    AG_FIN --> REG_FIN["11a. Registrar Parecer Financeiro"]
-    AG_OPS --> REG_OPS["11b. Registrar Parecer Operacional"]
-
-    REG_FIN --> MERGE["12. Merge Pareceres"]
+    IF_APROV -- > R$10k --> SUBMETER["8. Submeter Aprovação"]
+    AG_FIN["9a. Claude: Agente Financeiro<br>Utiliza as tools MCP consultar_pedidos_cliente<br>e consultar_historico_aprovacoes_cliente"] --> REG_FIN["10a. Registrar Parecer Financeiro"]
+    AG_OPS["9b. Claude: Agente Operacional<br>Utiliza a tool MCP<br>consultar_estoque_reservado"] --> REG_OPS["10b. Registrar Parecer Operacional"]
+    REG_FIN --> MERGE["11. Merge Pareceres"]
     REG_OPS --> MERGE
-
-    MERGE --> CONSULTAR["13. Consultar Aprovação"]
-    CONSULTAR --> AG_JUIZ["14. Claude: Agente Juiz"]
-    AG_JUIZ --> REG_JUIZ["15. Registrar Decisão Juiz"]
-    REG_JUIZ --> CLAUDE_NOTIF["16. Claude: Email Notificação"]
-    CLAUDE_NOTIF --> SET_RESULT["17. Resultado Final"]
+    MERGE --> CONSULTAR["12. Consultar Aprovação"]
+    CONSULTAR --> AG_JUIZ["13. Claude: Agente Juiz"]
+    AG_JUIZ --> REG_JUIZ["14. Registrar Decisão Juiz"]
+    REG_JUIZ --> CLAUDE_NOTIF["15. Claude: Email Notificação"]
+    CLAUDE_NOTIF --> SET_RESULT["16. Resultado Final"]
+    SUBMETER --> AG_FIN & AG_OPS
 ```
 
 **HITL fora do workflow:** O humano recebe o e-mail de notificação com pedido_id, valor, recomendação e justificativa, e decide via API REST (`POST /aprovacoes/{id}/decisao-humana`). Se não decidir em 24h, um mecanismo externo (cron/alerta) aciona o endpoint de escalonamento.
@@ -101,7 +91,7 @@ erDiagram
 ### Tools de Pesquisa para Agente Financeiro
 
 **Tool:** `consultar_pedidos_cliente(nome_cliente: str)`
-**Propósito:** Retorna todos os pedidos de um cliente. O agente envia o pseudônimo; a tool desanonimiza para consultar o ERP e reanonimiza a resposta. Usado pelo Agente Financeiro para avaliar histórico de compras.
+**Propósito:** Retorna todos os pedidos de um cliente. O agente envia o nome anonimizado; a tool desanonimiza para consultar o ERP e reanonimiza a resposta. Usado pelo Agente Financeiro para avaliar histórico de compras.
 **Input:** `{ nome_cliente: str }`
 **Output:** `{ pedidos: [{ id, cliente_anonimizado, total, status, criado_em, itens[] }] }`
 **Erros:** Nenhum pedido encontrado para o cliente (retorna lista vazia)
@@ -109,7 +99,7 @@ erDiagram
 ---
 
 **Tool:** `consultar_historico_aprovacoes_cliente(nome_cliente: str)`
-**Propósito:** Retorna o histórico de aprovações anteriores de um cliente. Desanonimiza o nome para consultar e reanonimiza a resposta. Usado pelo Agente Financeiro para avaliar padrão de aprovações.
+**Propósito:** Retorna o histórico de aprovações anteriores de um cliente a partir do nome anonimizado. Desanonimiza o nome para consultar e reanonimiza a resposta. Usado pelo Agente Financeiro para avaliar padrão de aprovações.
 **Input:** `{ nome_cliente: str }`
 **Output:** `{ aprovacoes: [{ id, pedido_id, status, criado_em }] }`
 **Erros:** Sem histórico de aprovações (retorna lista vazia)
