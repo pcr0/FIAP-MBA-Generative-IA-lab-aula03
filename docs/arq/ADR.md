@@ -20,9 +20,9 @@ Restrições obrigatórias no design:
 
 Arquitetura agentic com **3 agentes LLM** operando em padrão **Fan-out / Fan-in (Parallel) + LLM-as-a-judge + HITL**:
 
-1. **Agente Financeiro** — analisa risco de crédito, histórico de compras do cliente, concentração de valor. Trabalha em paralelo com o Agente Operacional.
-2. **Agente Operacional** — analisa impacto no estoque, capacidade de entrega, estoque reservado por pedidos pendentes. Trabalha em paralelo com o Agente Financeiro.
-3. **Agente Juiz (LLM-as-a-Judge)** — recebe os dois pareceres independentes, pondera e emite recomendação fundamentada (APROVAR ou REJEITAR).
+1. **Agente Financeiro** — analisa risco de crédito, histórico de compras do cliente, concentração de valor. Trabalha em paralelo com o Agente Operacional. Modelo utilizado será o Claude Haiku, com prompt específico para análise financeira de pedidos.
+2. **Agente Operacional** — analisa impacto no estoque, capacidade de entrega, estoque reservado por pedidos pendentes. Trabalha em paralelo com o Agente Financeiro. modelo utilizado será o Claude Haiku, com prompt específico para análise operacional de pedidos. 
+3. **Agente Juiz (LLM-as-a-Judge)** — recebe os dois pareceres independentes, pondera e emite recomendação fundamentada (APROVAR ou REJEITAR). Modelo utilizado será o Claude Sonnet, com prompt específico para função de juiz avaliando múltiplos pareceres.
 
 Após o Juiz, um **humano (HITL)** toma a decisão final com base na recomendação e nos pareceres. Se o humano não decidir em 24h, o processo é escalado automaticamente.
 
@@ -32,9 +32,9 @@ Após o Juiz, um **humano (HITL)** toma a decisão final com base na recomendaç
 
 **Modelo de dados:** normalizado em duas tabelas (`Aprovacao` + `LogAprovacao` 1-N) para escalabilidade do audit trail.
 
-**Anonimização:** bidirecional no MCP Server — `_anonimizar()` substitui nomes reais por pseudônimos (hash SHA-256 truncado) antes de enviar ao LLM; `_desanonimizar()` reverte antes de salvar no ERP ou responder ao usuário.
+**Anonimização:** bidirecional no MCP Server — `_anonimizar()` substitui nomes reais por pseudônimos (hash SHA-256 truncado) antes de enviar ao LLM.
 
-**Integração com o lab:** adiciona 8 endpoints REST ao ERP, 9 tools ao MCP Server, e estende o workflow n8n com ~13 nós novos (incluindo 3 chamadas a Claude Haiku e envio de e-mail de notificação ao aprovador). Pedidos ≤ R$ 10.000 não são afetados — seguem o fluxo atual (CRIADO → FATURADO).
+**Integração com o lab:** adiciona 8 endpoints REST ao ERP, 3 tools ao MCP Server, e estende o workflow n8n com novos nós (incluindo as chamadas a Claude Haiku/Claude Sonnet e envio de e-mail de notificação ao aprovador). Pedidos ≤ R$ 10.000 não são afetados — seguem o fluxo atual (CRIADO → FATURADO).
 
 ## Alternativas consideradas
 
@@ -42,7 +42,9 @@ Após o Juiz, um **humano (HITL)** toma a decisão final com base na recomendaç
 
 - **Alternativa B: Debate Adversarial com Juiz (Dialética)** — um Defensor constrói argumentos a favor, um Opositor constrói argumentos contra, o Juiz avalia. Descartada porque agentes instruídos a argumentar exaustivamente geram textos longos (risco de estourar budget de R$ 2/execução) e a polarização artificial pode não refletir a complexidade real do caso.
 
-- **Alternativa C: Manter o processo manual** — custo de inação: lead time de 2 dias por aprovação, sem rastreabilidade, sem auditoria, dependência de pessoas específicas, risco de aprovações inconsistentes. Inaceitável dado os requisitos de SLA e auditoria.
+- **Alternativa C: Com modelo Opus único orquestrando todo o processo sem uso do n8n** — um único modelo LLM gerenciaria todo o fluxo, desde a análise financeira e operacional até a decisão final utilizando modelo Claude Opus (com sub agentes). Descartada porque pelo custo de processamento com um modelo de grande porte, além de perder o paralelismo e a modularidade.
+
+- **Alternativa D: Manter o processo manual** — custo de inação: lead time de 2 dias por aprovação, sem rastreabilidade, sem auditoria, dependência de pessoas específicas, risco de aprovações inconsistentes. Inaceitável dado os requisitos de SLA e auditoria.
 
 ## Consequências
 
@@ -53,7 +55,7 @@ Após o Juiz, um **humano (HITL)** toma a decisão final com base na recomendaç
 - Conformidade LGPD: dados pessoais nunca chegam ao LLM — anonimização bidirecional no MCP.
 
 **Negativas / trade-offs aceitos:**
-- Complexidade adicional: 3 novos modelos de dados, 8 novos endpoints, 9 novas tools MCP, ~13 nós novos no workflow n8n — mais código e configuração para manter.
+- Complexidade adicional: 3 novos modelos de dados, 8 novos endpoints, 3novas tools MCP, nós novos no workflow n8n — mais código e configuração para manter.
 - Dependência de LLM para análise: se o LLM estiver indisponível, o processo fica em ANALISE_EM_ANDAMENTO até retry manual.
 - Mapas de anonimização em memória no MCP Server: não persistem entre restarts. Aceitável para contexto didático; em produção, seria necessário persistir em banco/cache.
 

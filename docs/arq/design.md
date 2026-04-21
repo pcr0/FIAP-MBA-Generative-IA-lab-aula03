@@ -1,97 +1,51 @@
 # Design: Aprovação Automatizada de Pedidos de Alto Valor
 
-## Diagrama de Arquitetura
+## Orquestração n8n
+
+O workflow n8n (`artifacts/n8n/workflow_erp.json`) é o orquestrador determinístico de todo o fluxo. Ele coordena chamadas HTTP ao ERP e chamadas à API Anthropic, sem depender do MCP Server (que serve apenas LLMs interativos).
+
+**Por que n8n?** Já é usado no lab, permite paralelismo nativo, oferece UI visual para debug, e mantém o workflow stateless — cada execução é independente.
+
+**Fluxo de aprovação no n8n:**
 
 ```mermaid
 graph TD
-    subgraph ERP["Mini-ERP (FastAPI + SQLite)"]
-        PEDIDO["POST /pedidos<br/>cria pedido"] -->|"total > R$10k"| STATUS_PEND["status = PENDENTE_APROVACAO"]
-        PEDIDO -->|"total ≤ R$10k"| STATUS_CRIADO["status = CRIADO<br/>(fluxo atual)"]
+    START["Webhook POST /erp-pedido"] --> ESTOQUE["1. Consultar Estoque"]
+    ESTOQUE --> IF_EST{"2. Estoque > 0?"}
+    IF_EST -->|Não| ALERTA["Alerta Sem Estoque"]
+    ALERTA --> CLAUDE_ALT["Claude: Sugerir Alternativas"]
+    CLAUDE_ALT --> SUG["Sugestão Gerada"]
 
-        subgraph DADOS["Modelo de Dados"]
-            TB_APROV["Aprovacao<br/>id, pedido_id, status,<br/>criado_em, atualizado_em"]
-            TB_LOG["LogAprovacao<br/>id, aprovacao_id, etapa,<br/>agente, parecer,<br/>recomendacao, detalhes,<br/>criado_em"]
-            TB_APROV -->|"1 — N"| TB_LOG
-        end
+    IF_EST -->|Sim| PEDIDO["3. Criar Pedido"]
+    PEDIDO --> IF_APROV{"4. Total > R$10k?"}
 
-        subgraph ENDPOINTS_APROV["Endpoints de Aprovação"]
-            EP_CRIAR["POST /aprovacoes"]
-            EP_CONSULTAR["GET /aprovacoes/{pedido_id}"]
-            EP_PENDENTES["GET /aprovacoes/pendentes"]
-            EP_PARECER["POST /aprovacoes/{id}/parecer"]
-            EP_JUIZ["POST /aprovacoes/{id}/decisao-juiz"]
-            EP_HUMANO["POST /aprovacoes/{id}/decisao-humana"]
-            EP_ESCALAR["POST /aprovacoes/{id}/escalar"]
-            EP_HISTORICO["GET /aprovacoes/historico?cliente="]
-        end
+    IF_APROV -->|"≤ R$10k"| FATURA["5. Gerar Fatura"]
+    FATURA --> CLAUDE_EMAIL["6. Claude: Email Confirmação"]
+    CLAUDE_EMAIL --> SET_EMAIL["7. Email Gerado"]
 
-        subgraph ENDPOINTS_CONSULTA["Endpoints de Consulta (Agentes)"]
-            EP_PED_CLI["GET /pedidos?cliente={nome}"]
-            EP_EST_RES["GET /estoque/{id}/reservado"]
-            EP_NAO_FAT["GET /pedidos/nao-faturados/{produto_id}"]
-        end
-    end
+    IF_APROV -->|"> R$10k"| SUBMETER["8. Submeter Aprovação"]
+    SUBMETER --> FETCH_FIN["9a. MCP - consultar_pedidos_cliente + MCP - consultar_historico_aprovacoes_cliente"]
+    SUBMETER --> FETCH_OPS["9b. MCP - consultar_estoque_reservado"]
 
-    subgraph MCP["MCP Server (FastMCP + httpx)"]
-        ANON["Anonimização Bidirecional<br/>_anonimizar() ↔ _desanonimizar()<br/>mapa em memória SHA-256"]
+    FETCH_FIN --> AG_FIN["10a. Claude: Agente Financeiro"]
+    FETCH_OPS --> AG_OPS["10b. Claude: Agente Operacional"]
 
-        subgraph TOOLS_FLUXO["Tools de Fluxo (5)"]
-            T_SUB["submeter_para_aprovacao"]
-            T_PAR["registrar_parecer"]
-            T_CONS["consultar_aprovacao"]
-            T_JUIZ["decidir_aprovacao_juiz"]
-            T_HUM["decidir_aprovacao_humana"]
-        end
+    AG_FIN --> REG_FIN["11a. Registrar Parecer Financeiro"]
+    AG_OPS --> REG_OPS["11b. Registrar Parecer Operacional"]
 
-        subgraph TOOLS_PESQ["Tools de Pesquisa (4)"]
-            T_PED_CLI["consultar_pedidos_cliente"]
-            T_HIST["consultar_historico_aprovacoes_cliente"]
-            T_EST_RES["consultar_estoque_reservado"]
-            T_NAO_FAT["consultar_pedidos_nao_faturados_produto"]
-        end
-    end
+    REG_FIN --> MERGE["12. Merge Pareceres"]
+    REG_OPS --> MERGE
 
-    subgraph AGENTES["Agentes LLM (Paralelo + Juiz)"]
-        AG_FIN["Agente Financeiro<br/>Risco, crédito, histórico"]
-        AG_OPS["Agente Operacional<br/>Estoque, entrega, reservas"]
-        AG_JUIZ["Agente Juiz<br/>LLM-as-a-Judge<br/>Pondera pareceres"]
-    end
-
-    HUMANO["Humano (HITL)<br/>Decisão final em até 24h"]
-    ESCALONAMENTO["Escalonamento<br/>Timeout 24h"]
-
-    %% Fluxo principal
-    STATUS_PEND --> T_SUB
-    T_SUB --> ANON
-    ANON -->|"dados anonimizados"| AG_FIN
-    ANON -->|"dados anonimizados"| AG_OPS
-
-    %% Agentes pesquisam
-    AG_FIN -->|"pesquisa"| T_PED_CLI --> EP_PED_CLI
-    AG_FIN -->|"pesquisa"| T_HIST --> EP_HISTORICO
-    AG_OPS -->|"pesquisa"| T_EST_RES --> EP_EST_RES
-    AG_OPS -->|"pesquisa"| T_NAO_FAT --> EP_NAO_FAT
-
-    %% Pareceres
-    AG_FIN -->|"parecer"| T_PAR --> EP_PARECER
-    AG_OPS -->|"parecer"| T_PAR
-
-    %% Juiz
-    T_PAR -->|"ambos completos"| AG_JUIZ
-    AG_JUIZ --> T_JUIZ --> EP_JUIZ
-
-    %% HITL
-    T_JUIZ -->|"AGUARDANDO_HUMANO"| HUMANO
-    HUMANO -->|"aprova/rejeita"| T_HUM --> EP_HUMANO
-    HUMANO -->|"timeout 24h"| ESCALONAMENTO --> EP_ESCALAR
-
-    %% Endpoints de aprovação conectam ao modelo
-    EP_CRIAR --> TB_APROV
-    EP_PARECER --> TB_LOG
-    EP_JUIZ --> TB_LOG
-    EP_HUMANO --> TB_LOG
-    EP_ESCALAR --> TB_LOG
+    MERGE --> CONSULTAR["13. Consultar Aprovação"]
+    CONSULTAR --> AG_JUIZ["14. Claude: Agente Juiz"]
+    AG_JUIZ --> REG_JUIZ["15. Registrar Decisão Juiz"]
+    REG_JUIZ --> CLAUDE_NOTIF["16. Claude: Email Notificação"]
+    CLAUDE_NOTIF --> SET_RESULT["17. Resultado Final"]
 ```
+
+**HITL fora do workflow:** O humano recebe o e-mail de notificação com pedido_id, valor, recomendação e justificativa, e decide via API REST (`POST /aprovacoes/{id}/decisao-humana`). Se não decidir em 24h, um mecanismo externo (cron/alerta) aciona o endpoint de escalonamento.
+
+**Agentes LLM via API Anthropic direta:** Os nós Claude do n8n chamam `api.anthropic.com/v1/messages` com `claude-haiku-4-5-20251001` (análises) e `claude-sonnet-4-5-20251001` (juiz). Não passam pelo MCP Server — os system prompts dos agentes são inline no workflow. A anonimização é feita no MCP Server chamado antes das ações dos LLM para que contexto seja fornecido de forma segura.
 
 ## Diagrama de Estados da Aprovação
 
@@ -142,97 +96,9 @@ erDiagram
         datetime criado_em
     }
 ```
-
-## Orquestração n8n
-
-O workflow n8n (`artifacts/n8n/workflow_erp.json`) é o orquestrador determinístico de todo o fluxo. Ele coordena chamadas HTTP ao ERP e chamadas à API Anthropic, sem depender do MCP Server (que serve apenas LLMs interativos).
-
-**Por que n8n?** Já é usado no lab, permite paralelismo nativo, oferece UI visual para debug, e mantém o workflow stateless — cada execução é independente.
-
-**Fluxo de aprovação no n8n:**
-
-```mermaid
-graph TD
-    START["Webhook POST /erp-pedido"] --> ESTOQUE["1. Consultar Estoque"]
-    ESTOQUE --> IF_EST{"2. Estoque > 0?"}
-    IF_EST -->|Não| ALERTA["Alerta Sem Estoque"]
-    ALERTA --> CLAUDE_ALT["Claude: Sugerir Alternativas"]
-    CLAUDE_ALT --> SUG["Sugestão Gerada"]
-
-    IF_EST -->|Sim| PEDIDO["3. Criar Pedido"]
-    PEDIDO --> IF_APROV{"4. Total > R$10k?"}
-
-    IF_APROV -->|"≤ R$10k"| FATURA["5. Gerar Fatura"]
-    FATURA --> CLAUDE_EMAIL["6. Claude: Email Confirmação"]
-    CLAUDE_EMAIL --> SET_EMAIL["7. Email Gerado"]
-
-    IF_APROV -->|"> R$10k"| SUBMETER["8. Submeter Aprovação"]
-    SUBMETER --> FETCH_FIN["9a. Buscar Dados Financeiro"]
-    SUBMETER --> FETCH_OPS["9b. Buscar Dados Operacional"]
-
-    FETCH_FIN --> AG_FIN["10a. Claude: Agente Financeiro"]
-    FETCH_OPS --> AG_OPS["10b. Claude: Agente Operacional"]
-
-    AG_FIN --> REG_FIN["11a. Registrar Parecer Financeiro"]
-    AG_OPS --> REG_OPS["11b. Registrar Parecer Operacional"]
-
-    REG_FIN --> MERGE["12. Merge Pareceres"]
-    REG_OPS --> MERGE
-
-    MERGE --> CONSULTAR["13. Consultar Aprovação"]
-    CONSULTAR --> AG_JUIZ["14. Claude: Agente Juiz"]
-    AG_JUIZ --> REG_JUIZ["15. Registrar Decisão Juiz"]
-    REG_JUIZ --> CLAUDE_NOTIF["16. Claude: Email Notificação"]
-    CLAUDE_NOTIF --> SET_RESULT["17. Resultado Final"]
-```
-
-**HITL fora do workflow:** O humano recebe o e-mail de notificação com pedido_id, valor, recomendação e justificativa, e decide via API REST (`POST /aprovacoes/{id}/decisao-humana`). Se não decidir em 24h, um mecanismo externo (cron/alerta) aciona o endpoint de escalonamento.
-
-**Agentes LLM via API Anthropic direta:** Os nós Claude do n8n chamam `api.anthropic.com/v1/messages` com `claude-haiku-4-5-20251001`. Não passam pelo MCP Server — os system prompts dos agentes são inline no workflow. A anonimização não é necessária nos nós n8n porque os dados já são processados pelo ERP (o n8n opera como sistema interno confiável).
-
 ## Novas MCP Tools
 
-### Tools de Fluxo de Aprovação
-
-**Tool:** `submeter_para_aprovacao(pedido_id: int)`
-**Propósito:** Inicia o processo de aprovação para um pedido > R$10k. Cria o registro de Aprovacao no ERP e retorna os dados do pedido anonimizados para os agentes analisarem.
-**Input:** `{ pedido_id: int }`
-**Output:** `{ aprovacao_id: int, pedido_id: int, status: str, pedido: { id, cliente_anonimizado, total, itens[] } }`
-**Erros:** Pedido não encontrado (404); Pedido com total ≤ R$10.000 (400)
-
----
-
-**Tool:** `registrar_parecer(pedido_id: int, agente: str, parecer: str, recomendacao: str)`
-**Propósito:** Registra o parecer de um agente (financeiro ou operacional). Quando ambos estão registrados, transiciona o status para PARECERES_COMPLETOS. O parecer é desanonimizado antes de salvar no banco.
-**Input:** `{ pedido_id: int, agente: "financeiro" | "operacional", parecer: str, recomendacao: "APROVAR" | "REJEITAR" }`
-**Output:** `{ log_id: int, etapa: str, status_aprovacao: str }`
-**Erros:** Aprovação não encontrada (404); Parecer duplicado para o mesmo agente (400)
-
----
-
-**Tool:** `consultar_aprovacao(pedido_id: int)`
-**Propósito:** Retorna o status completo de uma aprovação com todos os logs de cada etapa. Dados de cliente são anonimizados na resposta.
-**Input:** `{ pedido_id: int }`
-**Output:** `{ aprovacao: { id, pedido_id, status, criado_em, atualizado_em }, logs: [{ etapa, agente, parecer, recomendacao, criado_em }] }`
-**Erros:** Aprovação não encontrada (404)
-
----
-
-**Tool:** `decidir_aprovacao_juiz(pedido_id: int, decisao: str, justificativa: str)`
-**Propósito:** Registra a decisão do Juiz (LLM-as-a-Judge) após avaliar os pareceres dos dois agentes. Transiciona para AGUARDANDO_HUMANO. A justificativa é desanonimizada antes de salvar.
-**Input:** `{ pedido_id: int, decisao: "APROVAR" | "REJEITAR", justificativa: str }`
-**Output:** `{ log_id: int, status_aprovacao: "AGUARDANDO_HUMANO" }`
-**Erros:** Pareceres ainda incompletos (400); Aprovação não encontrada (404)
-
----
-
-**Tool:** `decidir_aprovacao_humana(pedido_id: int, decisao: str, responsavel: str, comentario: str)`
-**Propósito:** Registra a decisão final do humano (HITL). Transiciona a aprovação e o pedido para APROVADO ou REJEITADO. Não aplica anonimização — o humano trabalha com dados reais.
-**Input:** `{ pedido_id: int, decisao: "APROVAR" | "REJEITAR", responsavel: str, comentario: str }`
-**Output:** `{ log_id: int, status_aprovacao: "APROVADO" | "REJEITADO", status_pedido: str }`
-**Erros:** Aprovação não está em AGUARDANDO_HUMANO (400); Aprovação não encontrada (404)
-
-### Tools de Pesquisa para Agentes
+### Tools de Pesquisa para Agente Financeiro
 
 **Tool:** `consultar_pedidos_cliente(nome_cliente: str)`
 **Propósito:** Retorna todos os pedidos de um cliente. O agente envia o pseudônimo; a tool desanonimiza para consultar o ERP e reanonimiza a resposta. Usado pelo Agente Financeiro para avaliar histórico de compras.
@@ -248,7 +114,7 @@ graph TD
 **Output:** `{ aprovacoes: [{ id, pedido_id, status, criado_em }] }`
 **Erros:** Sem histórico de aprovações (retorna lista vazia)
 
----
+### Tools de Pesquisa para Agente Operacional
 
 **Tool:** `consultar_estoque_reservado(produto_id: int)`
 **Propósito:** Calcula a quantidade de estoque reservada por pedidos ainda não faturados (status CRIADO, PENDENTE_APROVACAO, APROVADO). Usado pelo Agente Operacional para avaliar disponibilidade real.
@@ -257,9 +123,3 @@ graph TD
 **Erros:** Produto não encontrado (404)
 
 ---
-
-**Tool:** `consultar_pedidos_nao_faturados_produto(produto_id: int)`
-**Propósito:** Lista pedidos não faturados que contêm um produto específico. Nomes de clientes são anonimizados. Usado pelo Agente Operacional para detalhar as reservas de estoque.
-**Input:** `{ produto_id: int }`
-**Output:** `{ pedidos: [{ id, cliente_anonimizado, total, status, quantidade_produto: int }] }`
-**Erros:** Produto não encontrado (404)
